@@ -8,11 +8,12 @@ import time
 import os
 from typing import Callable, List, Tuple, Union
 
+
 # --- 기본 설정 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- 1. 과거 데이터 수집 함수 ---
-def fetch_klines_binance(symbol: str, interval: str, start_str: str, end_str: str) -> pd.DataFrame:
+def fetch_klines_binance(symbol: str, interval: str, start_str: str, end_str: str = None) -> pd.DataFrame:
     # 이 함수는 바이낸스 클라이언트를 생성합니다. (공개 데이터는 API 키 필요 없음)
     client = Client()
     # "어떤 코인을, 언제부터 언제까지 가져오기 시작합니다" 라는 정보를 로그로 남깁니다.
@@ -20,7 +21,11 @@ def fetch_klines_binance(symbol: str, interval: str, start_str: str, end_str: st
 
     try:
         # get_historical_klines 함수는 데이터가 많아도 알아서 여러 번 나눠서 요청하고 모든 데이터를 합쳐줍니다.
-        klines = client.get_historical_klines(symbol, interval, start_str, end_str)
+        # end_str이 None이면 최신까지 가져오기 (end_str 파라미터 생략)
+        if end_str is None or end_str == "now UTC":
+            klines = client.get_historical_klines(symbol, interval, start_str)
+        else:
+            klines = client.get_historical_klines(symbol, interval, start_str, end_str)
 
         # 받아온 데이터가 비어있다면 경고 로그를 남기고 빈 DataFrame을 반환합니다.
         if not klines:
@@ -136,39 +141,20 @@ def backfill_binance(symbol: str, interval: str, gaps: List[Tuple[int, int]]) ->
 # --- 예제 코드 실행 부분 ---
 # 이 파일을 직접 실행했을 때만 아래 코드가 동작합니다.
 if __name__ == '__main__':
-    # --- 1. 과거 데이터 수집 및 저장 ---
-    print("--- 1. Testing fetch_klines_binance and saving to CSV ---")
-
-    # --- 파일 이름을 동적으로 만들기 ---
-    # 파일 이름에 사용할 시간 간격 문자열 (예: "3m", "1h", "1d")
-    interval_str = "3m"
-    # API 요청에 사용할 실제 간격 값
-    interval_client = Client.KLINE_INTERVAL_3MINUTE
-
-    # 파일 이름에 위에서 정한 interval_str을 포함시켜 동적으로 생성합니다.
-    file_name = f"btc_usdt_{interval_str}_data.csv"
-
-    # 'data' 폴더가 없으면 새로 만듭니다.
-    output_directory = "data"
-    if not os.path.exists(output_directory):
-        os.makedirs(output_directory)
-
-    # 최종 저장 경로를 완성합니다.
-    csv_filepath = os.path.join(output_directory, file_name)
-    # --- --- --- --- --- --- --- ---
+    # --- 1. 과거 데이터 수집 테스트 ---
+    print("--- 1. Testing fetch_klines_binance ---")
 
     try:
         # 과거 데이터 수집 함수를 호출합니다.
         historical_data = fetch_klines_binance(
             symbol="BTCUSDT",
-            interval=interval_client,
+            interval=Client.KLINE_INTERVAL_3MINUTE,
             start_str="2025-01-01",
-            end_str="now UTC"
+            end_str=None
         )
-        # 받아온 데이터가 있다면, 위에서 지정한 파일 경로에 CSV로 저장합니다.
-        if not historical_data.empty:
-            historical_data.to_csv(csv_filepath)
-            print(f"✅ Success! Historical data saved to {csv_filepath}")
+        print(f"✅ Success! Fetched {len(historical_data)} rows")
+        print("Data preview:")
+        print(historical_data.head())
 
     except Exception as e:
         print(f"❌ An error occurred: {e}")

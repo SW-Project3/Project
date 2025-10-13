@@ -188,10 +188,10 @@ if __name__ == '__main__':
     start_date = "2025-01-01"
 
     # --- 최종 파일 경로 생성 ---
-    # 원본 데이터를 저장할 './data/raw' 폴더 경로를 설정합니다.
-    raw_data_dir = Path(f"./data/raw")
-    # 가공된 데이터를 저장할 './data/processed' 폴더 경로를 설정합니다.
-    processed_data_dir = Path(f"./data/processed")
+    # 원본 데이터를 저장할 프로젝트 루트의 'data/raw' 폴더 경로를 설정합니다.
+    raw_data_dir = Path("../data/raw")
+    # 가공된 데이터를 저장할 프로젝트 루트의 'data/processed' 폴더 경로를 설정합니다.
+    processed_data_dir = Path("../data/processed")
 
     # 새로운 파일 이름 규칙에 따라 파일 이름을 생성합니다. (예: binance_BTCUSDT_1m_raw.csv)
     raw_filename = f"{source}_{symbol_name}_{interval_str}_raw.csv"
@@ -211,7 +211,7 @@ if __name__ == '__main__':
         symbol=symbol_name,
         interval=interval_client,
         start_str=start_date,
-        end_str="now UTC",
+        end_str=None,
         out_csv_path=csv_path
     )
 
