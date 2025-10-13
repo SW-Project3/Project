@@ -11,6 +11,7 @@ from typing import Union
 from data_fetcher import fetch_klines_binance, Client
 # 'logging'은 프로그램의 실행 상태나 오류를 기록(로그)으로 남기기 위한 라이브러리입니다.
 import logging
+# 'os'는 운영체제와 상호작용하기 위한 라이브러리로, 여기서는 파일 경로를 다루기 위해 사용합니다.
 import os
 
 # --- 기본 설정 ---
@@ -46,7 +47,7 @@ def load_raw_csv(path: Union[str, Path]) -> pd.DataFrame:
         # 필수 컬럼 목록을 정의합니다.
         required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
         # 만약 필수 컬럼 중 하나라도 df에 존재하지 않는다면,
-        if not all(col in df.columns for col in required_columns):
+        if not all(col in df.columns for col in df.columns):
             # "필수 컬럼이 누락됨" 이라는 에러를 발생시켜 프로그램을 중단합니다.
             raise ValueError(f"CSV file must contain all required columns: {required_columns}")
 
@@ -94,7 +95,7 @@ def save_raw_csv(df: pd.DataFrame, path: Union[str, Path], mode: str = "w"):
 
     # Path 객체로 변환합니다.
     filepath = Path(path)
-    # 저장할 폴더가 존재하지 않는다면,
+    # 저장할 폴더가 존재하지 않는다면, 폴더를 새로 만듭니다.
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     # 이어쓰기('a') 모드이고 파일이 이미 존재하는 경우,
@@ -121,7 +122,7 @@ def save_processed_parquet(df: pd.DataFrame, path: Union[str, Path]):
 
     # Path 객체로 변환합니다.
     filepath = Path(path)
-    # 저장할 폴더가 존재하지 않는다면,
+    # 저장할 폴더가 존재하지 않는다면, 폴더를 새로 만듭니다.
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     # to_parquet 함수로 DataFrame을 Parquet 파일로 저장합니다.
@@ -174,32 +175,40 @@ def build_from_fetch(symbol: str, interval: str, start_str: str, end_str: str, o
 # --- 예제 코드 실행 부분 ---
 # 이 파일을 직접 실행했을 때만 아래 코드가 동작합니다.
 if __name__ == '__main__':
-    # --- 저장할 폴더 및 파일 경로 설정 ---
-    # 데이터를 저장할 'market_data' 라는 폴더 경로를 설정합니다.
-    data_dir = Path("./market_data")
-
-    # --- ★★★★★ 수정된 부분 (1분봉) ★★★★★ ---
-    # 파일 이름에 사용할 시간 간격 문자열
+    # --- 저장할 정보 및 경로 설정 ---
+    # 데이터 소스 이름을 'binance'로 정의합니다.
+    source = "binance"
+    # 심볼 이름을 API에서 사용하는 대문자 형태('BTCUSDT')로 통일합니다.
+    symbol_name = "BTCUSDT"
+    # 파일 이름에 사용할 시간 간격 문자열을 '1m'으로 정의합니다.
     interval_str = "1m"
-    # API 요청에 사용할 실제 간격 값
+    # API 요청에 사용할 실제 간격 값을 1분봉으로 정합니다.
     interval_client = Client.KLINE_INTERVAL_1MINUTE
-    # 요청 시작 날짜 (올해 1월 1일)
+    # 요청 시작 날짜를 "2025-01-01"로 정합니다.
     start_date = "2025-01-01"
-    # --- --- --- --- --- --- --- --- --- --- ---
 
-    # 파일 이름을 동적으로 생성합니다. (예: btc_usdt_1m_raw.csv)
-    csv_filename = f"btc_usdt_{interval_str}_raw.csv"
-    csv_path = data_dir / csv_filename
+    # --- 최종 파일 경로 생성 ---
+    # 원본 데이터를 저장할 './data/raw' 폴더 경로를 설정합니다.
+    raw_data_dir = Path(f"./data/raw")
+    # 가공된 데이터를 저장할 './data/processed' 폴더 경로를 설정합니다.
+    processed_data_dir = Path(f"./data/processed")
 
-    # Parquet 파일 경로를 설정합니다.
-    parquet_filename = f"btc_usdt_{interval_str}_processed.parquet"
-    parquet_path = data_dir / parquet_filename
+    # 새로운 파일 이름 규칙에 따라 파일 이름을 생성합니다. (예: binance_BTCUSDT_1m_raw.csv)
+    raw_filename = f"{source}_{symbol_name}_{interval_str}_raw.csv"
+    # CSV 파일의 최종 저장 경로를 'data/raw' 폴더로 지정합니다.
+    csv_path = raw_data_dir / raw_filename
 
-    # --- 1. build_from_fetch 함수 테스트 ---
+    # Parquet 파일 이름도 새로운 규칙에 따라 생성합니다.
+    processed_filename = f"{source}_{symbol_name}_{interval_str}_processed.parquet"
+    # Parquet 파일의 최종 저장 경로를 'data/processed' 폴더로 지정합니다.
+    parquet_path = processed_data_dir / processed_filename
+
+    # --- 1. build_from_fetch 함수 실행 ---
+    # "데이터 빌드 시작" 메시지를 출력합니다.
     print("\n--- Building data from fetcher ---")
-    # 위에서 설정한 값들로 데이터를 가져와 CSV 파일로 빌드합니다.
+    # 위에서 설정한 값들로 데이터를 가져와 CSV 파일로 빌드하는 함수를 호출합니다.
     build_from_fetch(
-        symbol="BTCUSDT",
+        symbol=symbol_name,
         interval=interval_client,
         start_str=start_date,
         end_str="now UTC",
@@ -207,21 +216,27 @@ if __name__ == '__main__':
     )
 
     # --- 2. load_raw_csv 함수 테스트 ---
+    # "CSV 파일 확인 시작" 메시지를 출력합니다.
     print("\n--- Loading and verifying the raw CSV file ---")
-    # 방금 저장한 CSV 파일을 다시 불러와서 앞 5줄을 출력합니다.
+    # 방금 저장한 CSV 파일을 다시 불러옵니다.
     loaded_df = load_raw_csv(csv_path)
+    # 불러온 데이터의 앞 5줄을 출력하여 확인합니다.
     print("CSV Head:")
     print(loaded_df.head())
 
     # --- 3. save_processed_parquet 함수 테스트 ---
+    # "Parquet 저장 시작" 메시지를 출력합니다.
     print("\n--- Saving data to Parquet format ---")
     # 불러온 DataFrame을 Parquet 형식으로 저장합니다.
     save_processed_parquet(loaded_df, parquet_path)
+    # Parquet 파일이 저장된 경로를 메시지로 출력합니다.
     print(f"Data saved to Parquet format at {parquet_path}")
 
     # --- 4. Parquet 파일 로드 테스트 (참고) ---
+    # "Parquet 파일 확인 시작" 메시지를 출력합니다.
     print("\n--- Verifying the Parquet file ---")
     # pandas로 Parquet 파일을 다시 읽어서 제대로 저장되었는지 확인합니다.
     parquet_df = pd.read_parquet(parquet_path)
+    # 읽어온 데이터의 앞 5줄을 출력하여 확인합니다.
     print("Parquet Head:")
     print(parquet_df.head())
