@@ -1,5 +1,8 @@
 # data_processor.py
 
+# 원하는 분봉으로 변경하세요 (예: '1min', '3min', '5min', '15min', '30min', '1h')
+TARGET_TIMEFRAME = '3min'
+
 import pandas as pd
 import numpy as np
 from typing import Tuple
@@ -97,8 +100,8 @@ def resample_ohlcv(df: pd.DataFrame, out_freq: str) -> pd.DataFrame:
     
     return resampled_df
 
-def process_raw_to_5min(raw_csv_path: str, processed_csv_path: str) -> pd.DataFrame:
-    logging.info(f"Processing {raw_csv_path} to 5-minute bars")
+def process_raw_to_timeframe(raw_csv_path: str, processed_csv_path: str) -> pd.DataFrame:
+    logging.info(f"Processing {raw_csv_path} to {TARGET_TIMEFRAME} bars")
     
     raw_df = pd.read_csv(raw_csv_path, index_col=0, parse_dates=True)
     logging.info(f"Loaded {len(raw_df)} rows from raw CSV")
@@ -106,13 +109,13 @@ def process_raw_to_5min(raw_csv_path: str, processed_csv_path: str) -> pd.DataFr
     cleaned_df = basic_clean(raw_df)
     filtered_df, removed_logical = logical_filter(cleaned_df)
     spike_filtered_df, removed_spikes = spike_filter(filtered_df, threshold=0.20)
-    resampled_df = resample_ohlcv(spike_filtered_df, '5min')
+    resampled_df = resample_ohlcv(spike_filtered_df, TARGET_TIMEFRAME)
     
     output_path = Path(processed_csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     resampled_df.to_csv(output_path, index=True)
-    logging.info(f"Saved {len(resampled_df)} 5-minute bars to {output_path}")
+    logging.info(f"Saved {len(resampled_df)} {TARGET_TIMEFRAME} bars to {output_path}")
     
     return resampled_df
 
@@ -122,15 +125,15 @@ if __name__ == '__main__':
     interval_str = "1m"
     
     raw_csv_path = Path(f"../data/raw/{source}_{symbol_name}_{interval_str}_raw.csv")
-    processed_csv_path = Path(f"../data/processed/{source}_{symbol_name}_5m_processed.csv")
+    processed_csv_path = Path(f"../data/processed/{source}_{symbol_name}_{TARGET_TIMEFRAME}_processed.csv")
     
     if raw_csv_path.exists():
-        print(f"\n--- Processing {raw_csv_path} to 5-minute bars ---")
-        processed_df = process_raw_to_5min(str(raw_csv_path), str(processed_csv_path))
+        print(f"\n--- Processing {raw_csv_path} to {TARGET_TIMEFRAME} bars ---")
+        processed_df = process_raw_to_timeframe(str(raw_csv_path), str(processed_csv_path))
         
         print(f"\n--- Processing Results ---")
         print(f"Original 1-minute bars: {len(pd.read_csv(raw_csv_path))}")
-        print(f"Processed 5-minute bars: {len(processed_df)}")
+        print(f"Processed {TARGET_TIMEFRAME} bars: {len(processed_df)}")
         print(f"\nFirst 5 rows of processed data:")
         print(processed_df.head())
         
