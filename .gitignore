@@ -1,0 +1,9 @@
+# CSV 파일들
+*.csv
+
+# 데이터 폴더
+data/
+
+# IDE 설정
+.idea/workspace.xml
+.idea/shelf/
