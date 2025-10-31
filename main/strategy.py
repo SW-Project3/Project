@@ -1,5 +1,5 @@
 # main/strategy.py
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 import pandas as pd
 import numpy as np
 
@@ -83,85 +83,157 @@ def compute_indicators(df: pd.DataFrame, params: Optional[Dict] = None) -> pd.Da
 # ===================================
 # 2) 매매 신호 생성 함수
 # ===================================
-def generate_signals(
+# ---------------------------------------
+# 0) Prophet 예측 정렬/준비 헬퍼 함수
+# ---------------------------------------
+def align_prophet_forecast(
         df: pd.DataFrame,
-        prophet_forecast: pd.Series,
-        params: Optional[Dict] = None,
+        prophet_forecast: Union[pd.DataFrame, pd.Series],
+        ds_col: str = "ds",
+        yhat_col: str = "yhat",
+        yhat_lower_col: str = "yhat_lower",
+        yhat_upper_col: str = "yhat_upper",
+        method: str = "forward"  # merge_asof 방향: 'forward' -> 다음 예측을 현재 타임스텝에 매칭
 ) -> pd.DataFrame:
     """
-    Prophet 예측값과 보조지표를 결합해서 매매 신호 생성
-
-    매수 조건 (예시):
-        - Prophet 예측값이 현재가보다 0.5% 이상 높을 때
-        - RSI가 30 이하 (과매도)
-        - MACD 히스토그램이 0 이상 (상승 모멘텀)
-
-    매도 조건 (예시):
-        - Prophet 예측값이 현재가보다 0.5% 이상 낮을 때
-        - RSI가 70 이상 (과매수)
-        - MACD 히스토그램이 0 이하 (하락 모멘텀)
+    df: 가격 DataFrame (인덱스가 datetime인 상태, 또는 ds 컬럼이 있는 경우)
+    prophet_forecast: Prophet 출력 (DataFrame with ds,yhat,yhat_lower,yhat_upper) or pd.Series indexed by ds
+    반환: df 인덱스에 맞춘 DataFrame (columns: yhat, yhat_lower, yhat_upper)
     """
+    # 가격 쪽에 datetime 열 확보
+    price = df.copy()
+    if price.index.name is None or not pd.api.types.is_datetime64_any_dtype(price.index):
+        # 인덱스가 datetime이 아니면 'ds'컬럼 사용을 기대
+        if "ds" in price.columns:
+            price = price.set_index("ds")
+        else:
+            raise ValueError("df의 인덱스가 datetime이 아니고 'ds' 컬럼도 없습니다.")
+
+    # prophet_forecast 처리
+    if isinstance(prophet_forecast, pd.Series):
+        # 시리즈인 경우 인덱스를 datetime으로 만들고 yhat으로 간주
+        pf = prophet_forecast.to_frame(name=yhat_col).reset_index().rename(columns={"index": ds_col})
+        pf[ds_col] = pd.to_datetime(pf[ds_col])
+    else:
+        # DataFrame이면 필요한 컬럼만 골라서
+        pf = prophet_forecast.copy()
+        if ds_col not in pf.columns:
+            # maybe index is ds
+            if pf.index.name is None:
+                raise ValueError("prophet_forecast에 'ds' 컬럼이 없습니다.")
+            pf = pf.reset_index().rename(columns={pf.index.name: ds_col})
+        pf[ds_col] = pd.to_datetime(pf[ds_col])
+        # ensure yhat cols exist (fill with NaN if missing)
+        for c in (yhat_col, yhat_lower_col, yhat_upper_col):
+            if c not in pf.columns:
+                pf[c] = np.nan
+
+    # 정렬
+    pf = pf.sort_values(ds_col)
+    price_idx = price.index.to_frame(index=False).rename(columns={price.index.name or 0: ds_col})
+    price_idx[ds_col] = pd.to_datetime(price_idx[ds_col])
+
+    # merge_asof 를 위해 reset_index
+    price_reset = price.reset_index().rename(columns={price.index.name or "index": ds_col})
+    price_reset[ds_col] = pd.to_datetime(price_reset[ds_col])
+
+    # merge_asof: price times에 가장 가까운(또는 다음) forecast를 붙임
+    merged = pd.merge_asof(
+        price_reset.sort_values(ds_col),
+        pf.sort_values(ds_col),
+        on=ds_col,
+        direction=method  # 'forward' 또는 'backward' 또는 'nearest'
+    )
+
+    # 결과를 인덱스에 맞춘 DataFrame으로 반환 (인덱스 동일)
+    merged = merged.set_index(ds_col)
+    res = merged[[yhat_col, yhat_lower_col, yhat_upper_col]]
+    res.index = pd.to_datetime(res.index)
+    # reindex to exact original index (in case of name issues)
+    res = res.reindex(price.index)
+    return res
+
+# ---------------------------------------
+# 1) generate_signals 개선판 (prophet DataFrame 지원)
+# ---------------------------------------
+def generate_signals(
+        df: pd.DataFrame,
+        prophet_forecast: Union[pd.DataFrame, pd.Series],
+        params: Optional[Dict] = None,
+) -> pd.DataFrame:
     if params is None:
         params = DEFAULT_PARAMS
 
-    # Prophet 예측값과 인덱스 맞추기
-    forecast = prophet_forecast.reindex(df.index)
-    df = df.copy()
-
-    # 지표가 없으면 계산
+    # 지표 계산 보증
     needed = {"RSI", "MACD_Hist", "BB_MA", "ATR"}
     if not needed.issubset(df.columns):
         df = compute_indicators(df, params)
 
-    # 신호 저장용 DataFrame 생성
+    # Prophet 예측을 가격 인덱스에 맞춰 정렬/병합
+    # prophet_forecast는 DataFrame(yhat,yhat_lower,yhat_upper with ds) 또는 Series(index=ds)
+    pf_aligned = align_prophet_forecast(df, prophet_forecast, method="forward")
+
+    df = df.copy()
+    # join aligned forecast columns
+    df = df.join(pf_aligned)
+
+    # 신호 DataFrame 초기화
     signals = pd.DataFrame(index=df.index)
-    signals["signal"] = 0           # 1 = 매수, -1 = 매도, 0 = 없음
-    signals["reason"] = ""          # 신호 발생 이유
+    signals["signal"] = 0
+    signals["reason"] = ""
     signals["entry_price"] = np.nan
     signals["stop_loss"] = np.nan
     signals["take_profit"] = np.nan
 
-    # 파라미터 불러오기
+    # 파라미터
     pth = params["prophet_threshold"]
     rsi_buy = params["rsi_buy"]
     rsi_sell = params["rsi_sell"]
     sl_mult = params["stop_loss_atr_mult"]
     tp_mult = params["take_profit_atr_mult"]
 
-    holding = 0  # 현재 포지션 상태 (0: 없음, 1: 롱, -1: 숏)
+    holding = 0
 
     for ts in df.index:
         price = df.at[ts, "Close"]
-        f = forecast.at[ts]
+        yhat = df.at[ts, "yhat"]
+        yhat_l = df.at[ts, "yhat_lower"]
+        yhat_u = df.at[ts, "yhat_upper"]
         rsi = df.at[ts, "RSI"]
         macd_hist = df.at[ts, "MACD_Hist"]
         atr = df.at[ts, "ATR"]
 
-        # 데이터가 비어있으면 건너뛰기
-        if pd.isna(price) or pd.isna(f) or pd.isna(rsi) or pd.isna(macd_hist) or pd.isna(atr):
+        # 필요한 값 체크
+        if pd.isna(price) or pd.isna(yhat) or pd.isna(rsi) or pd.isna(macd_hist) or pd.isna(atr):
             continue
 
-        # Prophet 예측 대비 상승/하락 비율
-        rel = (f - price) / price
+        # 파생값
+        rel = (yhat - price) / price
+        rel_uncert = np.nan
+        if not pd.isna(yhat) and not pd.isna(yhat_l) and not pd.isna(yhat_u) and yhat != 0:
+            rel_uncert = (yhat_u - yhat_l) / abs(yhat)
 
-        # 매수 조건
+        # 매수/매도 조건(기존 조건에 불확실성 필터 추가 가능)
         buy_cond = (rel >= pth) and (rsi <= rsi_buy) and (macd_hist > 0)
-        # 매도 조건
         sell_cond = (rel <= -pth) and (rsi >= rsi_sell) and (macd_hist < 0)
 
-        # 매수 신호
+        # 예: 불확실성이 크면 신호 억제 (임계값은 필요시 params로 노출)
+        unc_thresh = params.get("prophet_uncertainty_threshold", 0.3)
+        if rel_uncert is not np.nan and rel_uncert > unc_thresh:
+            # 너무 불확실하면 스킵
+            continue
+
         if buy_cond and holding <= 0:
             signals.at[ts, "signal"] = 1
-            signals.at[ts, "reason"] = f"Prophet 상승({rel:.3f}) + RSI({rsi:.1f}) + MACD({macd_hist:.6f})"
+            signals.at[ts, "reason"] = f"Prophet 상승({rel:.3f}) unc={rel_uncert:.3f} RSI={rsi:.1f} MACD={macd_hist:.6f}"
             signals.at[ts, "entry_price"] = price
             signals.at[ts, "stop_loss"] = price - sl_mult * atr
             signals.at[ts, "take_profit"] = price + tp_mult * atr
             holding = 1
 
-        # 매도 신호
         elif sell_cond and holding >= 0:
             signals.at[ts, "signal"] = -1
-            signals.at[ts, "reason"] = f"Prophet 하락({rel:.3f}) + RSI({rsi:.1f}) + MACD({macd_hist:.6f})"
+            signals.at[ts, "reason"] = f"Prophet 하락({rel:.3f}) unc={rel_uncert:.3f} RSI={rsi:.1f} MACD={macd_hist:.6f}"
             signals.at[ts, "entry_price"] = price
             signals.at[ts, "stop_loss"] = price + sl_mult * atr
             signals.at[ts, "take_profit"] = price - tp_mult * atr
