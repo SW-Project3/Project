@@ -154,7 +154,7 @@ if __name__ == '__main__':
         )
         print(f"✅ Success! Fetched {len(historical_data)} rows")
         print("Data preview:")
-        print(historical_data.head())
+        print(historical_data.tail())
 
     except Exception as e:
         print(f"❌ An error occurred: {e}")
