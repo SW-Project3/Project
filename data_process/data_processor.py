@@ -135,7 +135,7 @@ if __name__ == '__main__':
         print(f"Original 1-minute bars: {len(pd.read_csv(raw_csv_path))}")
         print(f"Processed {TARGET_TIMEFRAME} bars: {len(processed_df)}")
         print(f"\nFirst 5 rows of processed data:")
-        print(processed_df.head())
+        print(processed_df.tail())
         
         if Path(processed_csv_path).exists():
             verification_df = pd.read_csv(processed_csv_path, index_col=0, parse_dates=True)

@@ -221,8 +221,8 @@ if __name__ == '__main__':
     # 방금 저장한 CSV 파일을 다시 불러옵니다.
     loaded_df = load_raw_csv(csv_path)
     # 불러온 데이터의 앞 5줄을 출력하여 확인합니다.
-    print("CSV Head:")
-    print(loaded_df.head())
+    print("CSV Tail:")
+    print(loaded_df.tail())
 
     # --- 3. save_processed_parquet 함수 테스트 ---
     # "Parquet 저장 시작" 메시지를 출력합니다.
@@ -238,5 +238,5 @@ if __name__ == '__main__':
     # pandas로 Parquet 파일을 다시 읽어서 제대로 저장되었는지 확인합니다.
     parquet_df = pd.read_parquet(parquet_path)
     # 읽어온 데이터의 앞 5줄을 출력하여 확인합니다.
-    print("Parquet Head:")
-    print(parquet_df.head())
+    print("Parquet Tail:")
+    print(parquet_df.tail())
