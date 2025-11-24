@@ -219,7 +219,7 @@ def generate_signals(
 
         # 예: 불확실성이 크면 신호 억제 (임계값은 필요시 params로 노출)
         unc_thresh = params.get("prophet_uncertainty_threshold", 0.3)
-        if rel_uncert is not np.nan and rel_uncert > unc_thresh:
+        if not pd.isna(rel_uncert) and rel_uncert > unc_thresh:
             # 너무 불확실하면 스킵
             continue
 

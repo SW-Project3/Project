@@ -92,33 +92,3 @@ def backtest_signals(df: pd.DataFrame, starting_balance: float = 10000.0, slippa
     }
 
 
-if __name__ == "__main__":
-    # 간단한 예시: 가상의 데이터와 strategy.py의 전략 사용
-    import numpy as np
-    import pandas as pd
-    from main.strategy import Strategy
-
-    # 1분 간격으로 300개 데이터 생성
-    timestamps = pd.date_range("2025-01-01", periods=300, freq="T")
-    prices = pd.Series(np.cumsum(np.random.randn(300) * 0.5 + 0.02) + 100)
-
-    # 더미 데이터프레임 구성
-    demo_df = pd.DataFrame({
-        "timestamp": timestamps,
-        "open": prices,
-        "high": prices + 0.2,
-        "low": prices - 0.2,
-        "close": prices,
-        "volume": 1.0
-    })
-
-    # 전략 인스턴스 생성 및 시그널 생성
-    strat = Strategy()
-    sigs = strat.generate_signals(demo_df)
-
-    # 백테스트 실행
-    res = backtest_signals(sigs, starting_balance=10000.0, slippage=0.0005)
-
-    # 결과 출력
-    print("최종 잔고:", res["final_balance"])
-    print("거래 내역(일부):", res["trades"][:5])
