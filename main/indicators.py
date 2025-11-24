@@ -1,6 +1,6 @@
 import pandas as pd
 """pd.Series, pd.DataFrame 연산(rolling, shift 등)을 사용하므로 pandas가 필수"""
-import numpy as n
+import numpy as np
 """numpy는 수치 연산(예: np.nan)이나 배열 연산이 필요할 때 사용"""
 
 # ============================
