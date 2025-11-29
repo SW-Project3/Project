@@ -9,7 +9,7 @@ Prophet 예측 엔진
 - 회귀자:
     - volume: 거래량(추세의 신뢰도 반영)
     - crash_dummy: 급등락/볼륨 스파이크 이벤트 강도(0~1)
-    - rsi14(옵션): 14일 RSI, 과매수·과매도 구간을 보조적으로 반영
+    - rsi7(옵션): 14일 RSI, 과매수·과매도 구간을 보조적으로 반영
 
 [입력]
 - pandas.DataFrame
@@ -59,7 +59,7 @@ class ProphetModel:
     freq: str = "1d"                      # 예측할 주기
     horizon: int = 3                      # 예측 스텝 수
     start_date: str = "2025-04-01"        # 학습 시작일(UTC)
-    end_date: Optional[str] = "2025-10-30T00:09:00+00:00"  # 학습 종료일(UTC)
+    end_date: Optional[str] = "2025-10-31T00:09:00+00:00"  # 학습 종료일(UTC)
     interval_width: float = 0.80          # 신뢰구간 폭
     changepoint_prior_scale: float = 1.0  # 추세 변곡점 민감도
     seasonality_mode: Literal["additive", "multiplicative"] = "additive"
@@ -81,7 +81,7 @@ class ProphetModel:
     changepoint_range: float = 0.9
 
     # RSI (옵션)
-    use_rsi: bool = True
+    use_rsi: bool = False
     rsi_period: int = 7
 
     # 매물대(VAP) 관련
@@ -204,10 +204,12 @@ class ProphetModel:
         # RSI 14 계산 (옵션)
         if self.use_rsi and indicators is not None:
             try:
-                flg["rsi14"] = indicators.rsi(flg["close"], period=self.rsi_period)
-                flg["rsi14"] = flg["rsi14"].ffill().bfill()
+                flg["rsi7"] = indicators.rsi(flg["close"], period=self.rsi_period)
+                flg["rsi7"] = flg["rsi7"].ffill().bfill()
+                flg["rsi7_dev"] = (flg["rsi7"] - 50.0) / 50.0
+
             except Exception as e:
-                print(f"[ProphetModel][RSI] failed to compute rsi14: {e}")
+                print(f"[ProphetModel][RSI] failed to compute rsi7: {e}")
 
         if self.use_vap:
             flg = self._build_vap_features(flg)
@@ -221,8 +223,8 @@ class ProphetModel:
             "crash_dummy": flg["crash_dummy"].values,
         }
 
-        if self.use_rsi and "rsi14" in flg.columns:
-            pdf_dict["rsi14"] = flg["rsi14"].values
+        if self.use_rsi and "rsi7_dev" in flg.columns:
+            pdf_dict["rsi7_dev"] = flg["rsi7_dev"].values
 
         pdf = pd.DataFrame(pdf_dict)
 
@@ -232,8 +234,8 @@ class ProphetModel:
             pdf["vap_vah_dist"] = flg["vap_vah_dist"].values
 
         check_cols = ["ds", "y", "volume", "crash_dummy"]
-        if self.use_rsi and "rsi14" in pdf.columns:
-            check_cols.append("rsi14")
+        if self.use_rsi and "rsi7" in pdf.columns:
+            check_cols.append("rsi7")
 
         if pdf[check_cols].isna().any().any():
             print("[ProphetModel][transform] pdf에 NaN 존재 → 중단")
@@ -357,8 +359,8 @@ class ProphetModel:
         m.add_regressor("volume", standardize=True, prior_scale=0.05)
         m.add_regressor("crash_dummy", standardize=True, prior_scale=0.3)
 
-        if self.use_rsi and "rsi14" in pdf.columns:
-            m.add_regressor("rsi14", standardize=True, prior_scale=0.1)
+        if self.use_rsi and "rsi7_dev" in pdf.columns:
+            m.add_regressor("rsi7_dev", standardize=True, prior_scale=0.5)
 
         if self.use_vap:
             m.add_regressor("vap_poc_diff", standardize=True, prior_scale=0.2)
@@ -386,10 +388,10 @@ class ProphetModel:
 
             future["crash_dummy"] = 0.0
 
-            # 미래 rsi14: 마지막 값을 그대로 사용(현재 모멘텀 유지 가정)
-            if self.use_rsi and "rsi14" in pdf.columns:
-                last_rsi = float(pdf["rsi14"].iloc[-1])
-                future["rsi14"] = last_rsi
+            # 미래 rsi7: 마지막 값을 그대로 사용(현재 모멘텀 유지 가정)
+            if self.use_rsi and "rsi7_dev" in pdf.columns:
+                last_rsi_dev = float(pdf["rsi7_dev"].iloc[-1])
+                future["rsi7_dev"] = last_rsi_dev
 
             if self.use_vap:
                 future["vap_poc_diff"] = float(pdf["vap_poc_diff"].iloc[-1])
