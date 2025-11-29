@@ -5,15 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trading System Dashboard</title>
     <link rel="stylesheet" href="css/style.css">
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Trading System Dashboard</h1>
+            <h1>BTC/USDT 트레이딩 차트 (2025-09-01 ~ 2025-10-31)</h1>
         </header>
         
         <main>
-            <!-- 메인 콘텐츠 영역 -->
+            <div id="date-filter" class="date-filter">
+                <label for="start-date">시작 날짜:</label>
+                <input type="date" id="start-date" value="2025-09-01" min="2025-09-01" max="2025-10-31">
+                
+                <label for="end-date">종료 날짜:</label>
+                <input type="date" id="end-date" value="2025-10-31" min="2025-09-01" max="2025-10-31">
+                
+                <button id="apply-filter" class="btn-apply">적용</button>
+                <button id="reset-filter" class="btn-reset">전체 기간</button>
+            </div>
+            
+            <div id="loading" class="loading">데이터 로딩 중...</div>
+            <div id="chart-container" style="display: none;" class="chart-wrapper">
+                <div id="trading-chart" class="main-chart"></div>
+                <div id="asset-chart" class="asset-chart"></div>
+            </div>
+            <div id="error" class="error" style="display: none;"></div>
         </main>
         
         <footer>
