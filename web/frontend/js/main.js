@@ -452,7 +452,11 @@ function createChart(data) {
         displayModeBar: true
     }).then(function() {
         // 마우스 오버 이벤트 핸들러 추가
-        setupHoverLines('trading-chart', buyPositions, sellPositions);
+        // 약간의 지연을 두어 차트가 완전히 렌더링된 후 이벤트 핸들러 등록
+        setTimeout(function() {
+            setupHoverLines('trading-chart', buyPositions, sellPositions);
+            console.log('Hover 이벤트 핸들러 등록 완료. 매수:', buyPositions.length, '매도:', sellPositions.length);
+        }, 100);
     });
     
     // 자산 변동 차트 그리기
@@ -465,95 +469,179 @@ function createChart(data) {
 
 function setupHoverLines(chartId, buyPositions, sellPositions) {
     const chartDiv = document.getElementById(chartId);
-    let currentShapes = [];
+    if (!chartDiv) {
+        console.error('차트 요소를 찾을 수 없습니다:', chartId);
+        return;
+    }
+    
+    let hoverShapeIndices = [];
+    
+    // 기존 이벤트 핸들러 제거 (중복 방지)
+    chartDiv.removeAllListeners('plotly_hover');
+    chartDiv.removeAllListeners('plotly_unhover');
     
     chartDiv.on('plotly_hover', function(data) {
-        // 기존 라인 제거
-        if (currentShapes.length > 0) {
-            const update = {
-                shapes: currentShapes.map(() => null)
-            };
+        // 기존 호버 라인 제거
+        if (hoverShapeIndices.length > 0) {
+            const update = {};
+            hoverShapeIndices.forEach(idx => {
+                update[`shapes[${idx}]`] = null;
+            });
             Plotly.relayout(chartId, update);
-            currentShapes = [];
+            hoverShapeIndices = [];
         }
         
-        // 호버된 포인트 확인
+        // 호버된 포인트 확인 - 매수/매도 포지션만 처리
         if (data.points && data.points.length > 0) {
-            const point = data.points[0];
-            const pointIndex = point.pointNumber;
-            
-            // 매수 포지션 확인
-            if (point.data.name === '매수' && point.data.customdata && point.data.customdata[pointIndex]) {
-                const pos = point.data.customdata[pointIndex];
-                const shapes = [
-                    {
-                        type: 'line',
-                        x0: pos.timestamp,
-                        x1: pos.timestamp,
-                        y0: pos.stop_loss,
-                        y1: pos.stop_loss,
-                        xref: 'x',
-                        yref: 'y',
-                        line: { color: 'red', width: 2, dash: 'dot' },
-                        opacity: 0.8
-                    },
-                    {
-                        type: 'line',
-                        x0: pos.timestamp,
-                        x1: pos.timestamp,
-                        y0: pos.take_profit,
-                        y1: pos.take_profit,
-                        xref: 'x',
-                        yref: 'y',
-                        line: { color: 'green', width: 2, dash: 'dot' },
-                        opacity: 0.8
+            // 모든 포인트를 확인하여 매수/매도 포지션 찾기
+            for (let i = 0; i < data.points.length; i++) {
+                const point = data.points[i];
+                const pointIndex = point.pointNumber;
+                const traceName = point.data.name;
+                
+                // 매수 포지션 확인
+                if (traceName === '매수') {
+                    console.log('매수 포지션 감지:', {
+                        pointIndex: pointIndex,
+                        hasCustomdata: !!point.data.customdata,
+                        customdataType: Array.isArray(point.data.customdata) ? 'array' : typeof point.data.customdata,
+                        customdataLength: point.data.customdata ? point.data.customdata.length : 0
+                    });
+                    
+                    // customdata가 배열인지 확인하고 인덱스로 접근
+                    if (point.data.customdata && Array.isArray(point.data.customdata) && point.data.customdata[pointIndex]) {
+                        const pos = point.data.customdata[pointIndex];
+                        console.log('매수 포지션 데이터:', pos);
+                        
+                        // 기존 shapes 가져오기
+                        const currentShapes = chartDiv.layout.shapes ? [...chartDiv.layout.shapes] : [];
+                        const startIndex = currentShapes.length;
+                        
+                        // 수평선으로 손절가/익절가 표시 (차트 전체 너비에 걸쳐)
+                        const newShapes = [
+                            {
+                                type: 'line',
+                                x0: 0,
+                                x1: 1,
+                                y0: pos.stop_loss,
+                                y1: pos.stop_loss,
+                                xref: 'paper',
+                                yref: 'y',
+                                line: { color: 'red', width: 2, dash: 'dot' },
+                                opacity: 0.8,
+                                layer: 'above'
+                            },
+                            {
+                                type: 'line',
+                                x0: 0,
+                                x1: 1,
+                                y0: pos.take_profit,
+                                y1: pos.take_profit,
+                                xref: 'paper',
+                                yref: 'y',
+                                line: { color: 'green', width: 2, dash: 'dot' },
+                                opacity: 0.8,
+                                layer: 'above'
+                            }
+                        ];
+                        
+                        // 기존 shapes에 새 shapes 추가
+                        const allShapes = [...currentShapes, ...newShapes];
+                        const update = { shapes: allShapes };
+                        
+                        Plotly.relayout(chartId, update).then(function() {
+                            hoverShapeIndices = [startIndex, startIndex + 1];
+                            console.log('매수 손절/익절 라인 추가됨. 인덱스:', hoverShapeIndices);
+                        });
+                        return; // 매수 포지션을 찾았으므로 종료
+                    } else {
+                        console.warn('매수 포지션 customdata 없음:', {
+                            hasCustomdata: !!point.data.customdata,
+                            isArray: Array.isArray(point.data.customdata),
+                            index: pointIndex,
+                            data: point.data.customdata
+                        });
                     }
-                ];
-                Plotly.relayout(chartId, { shapes: shapes });
-                currentShapes = shapes;
-            }
-            
-            // 매도 포지션 확인
-            if (point.data.name === '매도' && point.data.customdata && point.data.customdata[pointIndex]) {
-                const pos = point.data.customdata[pointIndex];
-                const shapes = [
-                    {
-                        type: 'line',
-                        x0: pos.timestamp,
-                        x1: pos.timestamp,
-                        y0: pos.stop_loss,
-                        y1: pos.stop_loss,
-                        xref: 'x',
-                        yref: 'y',
-                        line: { color: 'red', width: 2, dash: 'dot' },
-                        opacity: 0.8
-                    },
-                    {
-                        type: 'line',
-                        x0: pos.timestamp,
-                        x1: pos.timestamp,
-                        y0: pos.take_profit,
-                        y1: pos.take_profit,
-                        xref: 'x',
-                        yref: 'y',
-                        line: { color: 'green', width: 2, dash: 'dot' },
-                        opacity: 0.8
+                }
+                
+                // 매도 포지션 확인
+                if (traceName === '매도') {
+                    console.log('매도 포지션 감지:', {
+                        pointIndex: pointIndex,
+                        hasCustomdata: !!point.data.customdata,
+                        customdataType: Array.isArray(point.data.customdata) ? 'array' : typeof point.data.customdata,
+                        customdataLength: point.data.customdata ? point.data.customdata.length : 0
+                    });
+                    
+                    // customdata가 배열인지 확인하고 인덱스로 접근
+                    if (point.data.customdata && Array.isArray(point.data.customdata) && point.data.customdata[pointIndex]) {
+                        const pos = point.data.customdata[pointIndex];
+                        console.log('매도 포지션 데이터:', pos);
+                        
+                        // 기존 shapes 가져오기
+                        const currentShapes = chartDiv.layout.shapes ? [...chartDiv.layout.shapes] : [];
+                        const startIndex = currentShapes.length;
+                        
+                        // 수평선으로 손절가/익절가 표시 (차트 전체 너비에 걸쳐)
+                        const newShapes = [
+                            {
+                                type: 'line',
+                                x0: 0,
+                                x1: 1,
+                                y0: pos.stop_loss,
+                                y1: pos.stop_loss,
+                                xref: 'paper',
+                                yref: 'y',
+                                line: { color: 'red', width: 2, dash: 'dot' },
+                                opacity: 0.8,
+                                layer: 'above'
+                            },
+                            {
+                                type: 'line',
+                                x0: 0,
+                                x1: 1,
+                                y0: pos.take_profit,
+                                y1: pos.take_profit,
+                                xref: 'paper',
+                                yref: 'y',
+                                line: { color: 'green', width: 2, dash: 'dot' },
+                                opacity: 0.8,
+                                layer: 'above'
+                            }
+                        ];
+                        
+                        // 기존 shapes에 새 shapes 추가
+                        const allShapes = [...currentShapes, ...newShapes];
+                        const update = { shapes: allShapes };
+                        
+                        Plotly.relayout(chartId, update).then(function() {
+                            hoverShapeIndices = [startIndex, startIndex + 1];
+                            console.log('매도 손절/익절 라인 추가됨. 인덱스:', hoverShapeIndices);
+                        });
+                        return; // 매도 포지션을 찾았으므로 종료
+                    } else {
+                        console.warn('매도 포지션 customdata 없음:', {
+                            hasCustomdata: !!point.data.customdata,
+                            isArray: Array.isArray(point.data.customdata),
+                            index: pointIndex,
+                            data: point.data.customdata
+                        });
                     }
-                ];
-                Plotly.relayout(chartId, { shapes: shapes });
-                currentShapes = shapes;
+                }
             }
         }
     });
     
     chartDiv.on('plotly_unhover', function() {
+        console.log('Unhover event');
         // 호버 해제 시 라인 제거
-        if (currentShapes.length > 0) {
-            const update = {
-                shapes: currentShapes.map(() => null)
-            };
+        if (hoverShapeIndices.length > 0) {
+            const update = {};
+            hoverShapeIndices.forEach(idx => {
+                update[`shapes[${idx}]`] = null;
+            });
             Plotly.relayout(chartId, update);
-            currentShapes = [];
+            hoverShapeIndices = [];
         }
     });
 }
