@@ -24,8 +24,13 @@ else:
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# 모델 경로도 추가 (도커 환경 대응)
+model_path = project_root / "model"
+if str(model_path) not in sys.path and model_path.exists():
+    sys.path.insert(0, str(model_path))
+
 from main import indicators
-from main.indicator_strategy_connector import generate_signals_indicator_only, DEFAULT_PARAMS
+from main.indicator_strategy_connector import generate_signals_indicator_only, generate_signals_prophet_strategy, DEFAULT_PARAMS
 
 app = Flask(__name__)
 if CORS:
@@ -211,7 +216,11 @@ def load_data():
     global cached_data, cached_signals
     
     if cached_data is not None:
+        print("[load_data] 캐시된 데이터 사용 중...")
+        print(f"[load_data] 캐시된 신호 수: {len(cached_signals[cached_signals['signal'] != 0])} 개")
         return cached_data, cached_signals
+    
+    print("[load_data] 새 데이터 로드 시작...")
     
     # 도커 환경에서는 볼륨 마운트된 경로 사용
     # 볼륨 마운트: ../data:/app/data:ro
@@ -232,8 +241,64 @@ def load_data():
     # 지표 계산
     df = calculate_indicators(df)
     
-    # 신호 생성
-    signals = generate_signals_indicator_only(df)
+    # Prophet 모델 생성 및 예측
+    try:
+        # sys.path에 model 경로가 추가되어 있으므로 직접 import 시도
+        from model.prophet_model import ProphetModel
+        from main.prophet_strategy_connector import generate_prophet_forecast_rolling
+        
+        # 15분 봉 데이터이므로 freq를 "15T"로 설정
+        prophet_model = ProphetModel(
+            freq="15T",  # 15분
+            horizon=3,
+            start_date="2025-09-01",
+            end_date="2025-10-31T00:09:00+00:00",
+            use_rsi=True,
+            rsi_period=14
+        )
+        
+        # 롤링 윈도우로 Prophet 예측 수행
+        # DataFrame을 소문자 컬럼으로 변환
+        df_for_prophet = df[['Close', 'Volume']].copy()
+        df_for_prophet.columns = ['close', 'volume']
+        
+        print(f"[load_data] Prophet 예측 시작: {len(df_for_prophet)} 개 시점, window_size=500, step_size=10")
+        
+        # step_size를 늘려서 예측 빈도 감소 (성능 최적화)
+        # step_size=10: 10개 시점마다 예측 (약 2.5시간마다)
+        # 이렇게 하면 예측 시간이 약 1/10로 단축됩니다
+        prophet_forecast = generate_prophet_forecast_rolling(
+            df_for_prophet,
+            prophet_model,
+            window_size=500,  # 롤링 윈도우 크기
+            step_size=10,     # 10개 시점마다 예측 (타임아웃 방지)
+            min_window=200
+        )
+        
+        print(f"[load_data] Prophet 예측 완료: {len(prophet_forecast)} 개의 예측 결과")
+        
+        # 새로운 전략으로 신호 생성
+        if not prophet_forecast.empty:
+            print(f"[load_data] Prophet 예측 완료: {len(prophet_forecast)} 개의 예측 결과")
+            signals = generate_signals_prophet_strategy(df, prophet_forecast)
+            buy_count = len(signals[signals['signal'] == 1])
+            sell_count = len(signals[signals['signal'] == -1])
+            print(f"[load_data] ✅ Prophet 전략으로 신호 생성 완료:")
+            print(f"  - 매수 신호: {buy_count} 개")
+            print(f"  - 매도 신호: {sell_count} 개")
+            print(f"  - 총 신호: {buy_count + sell_count} 개")
+        else:
+            print("[load_data] ⚠️ Prophet 예측 결과가 비어있음, 지표만 사용")
+            signals = generate_signals_indicator_only(df)
+            print(f"[load_data] 지표 전략 신호 수: {len(signals[signals['signal'] != 0])} 개")
+        
+    except Exception as e:
+        print(f"[load_data] ❌ Prophet 모델 사용 실패, 지표만 사용: {e}")
+        import traceback
+        traceback.print_exc()
+        # Prophet 실패 시 기존 방식 사용
+        signals = generate_signals_indicator_only(df)
+        print(f"[load_data] 지표 전략 신호 수: {len(signals[signals['signal'] != 0])} 개")
     
     # 캐싱
     cached_data = df
@@ -386,6 +451,15 @@ def health():
 def api_health():
     """API 헬스 체크"""
     return jsonify({'status': 'ok', 'service': 'flask-chart-api', 'endpoint': '/api/health'})
+
+@app.route('/api/clear-cache')
+def clear_cache():
+    """캐시 초기화"""
+    global cached_data, cached_signals
+    cached_data = None
+    cached_signals = None
+    print("[clear_cache] 캐시가 초기화되었습니다.")
+    return jsonify({'status': 'ok', 'message': '캐시가 초기화되었습니다. 다음 요청 시 새로 계산됩니다.'})
 
 
 if __name__ == '__main__':

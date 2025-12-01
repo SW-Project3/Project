@@ -81,7 +81,7 @@ class ProphetModel:
     changepoint_range: float = 0.9
 
     # RSI (옵션)
-    use_rsi: bool = False
+    use_rsi: bool = True
     rsi_period: int = 7
 
     # 매물대(VAP) 관련

@@ -564,69 +564,10 @@ function setupHoverLines(chartId, buyPositions, sellPositions) {
                     }
                 }
                 
-                // 매도 포지션 확인
+                // 매도 포지션 확인 - 손절/익절 라인 표시하지 않음
                 if (traceName === '매도') {
-                    console.log('매도 포지션 감지:', {
-                        pointIndex: pointIndex,
-                        hasCustomdata: !!point.data.customdata,
-                        customdataType: Array.isArray(point.data.customdata) ? 'array' : typeof point.data.customdata,
-                        customdataLength: point.data.customdata ? point.data.customdata.length : 0
-                    });
-                    
-                    // customdata가 배열인지 확인하고 인덱스로 접근
-                    if (point.data.customdata && Array.isArray(point.data.customdata) && point.data.customdata[pointIndex]) {
-                        const pos = point.data.customdata[pointIndex];
-                        console.log('매도 포지션 데이터:', pos);
-                        
-                        // 기존 shapes 가져오기
-                        const currentShapes = chartDiv.layout.shapes ? [...chartDiv.layout.shapes] : [];
-                        const startIndex = currentShapes.length;
-                        
-                        // 수평선으로 손절가/익절가 표시 (차트 전체 너비에 걸쳐)
-                        const newShapes = [
-                            {
-                                type: 'line',
-                                x0: 0,
-                                x1: 1,
-                                y0: pos.stop_loss,
-                                y1: pos.stop_loss,
-                                xref: 'paper',
-                                yref: 'y',
-                                line: { color: 'red', width: 2, dash: 'dot' },
-                                opacity: 0.8,
-                                layer: 'above'
-                            },
-                            {
-                                type: 'line',
-                                x0: 0,
-                                x1: 1,
-                                y0: pos.take_profit,
-                                y1: pos.take_profit,
-                                xref: 'paper',
-                                yref: 'y',
-                                line: { color: 'green', width: 2, dash: 'dot' },
-                                opacity: 0.8,
-                                layer: 'above'
-                            }
-                        ];
-                        
-                        // 기존 shapes에 새 shapes 추가
-                        const allShapes = [...currentShapes, ...newShapes];
-                        const update = { shapes: allShapes };
-                        
-                        Plotly.relayout(chartId, update).then(function() {
-                            hoverShapeIndices = [startIndex, startIndex + 1];
-                            console.log('매도 손절/익절 라인 추가됨. 인덱스:', hoverShapeIndices);
-                        });
-                        return; // 매도 포지션을 찾았으므로 종료
-                    } else {
-                        console.warn('매도 포지션 customdata 없음:', {
-                            hasCustomdata: !!point.data.customdata,
-                            isArray: Array.isArray(point.data.customdata),
-                            index: pointIndex,
-                            data: point.data.customdata
-                        });
-                    }
+                    // 매도 포지션은 손절/익절 라인을 표시하지 않음
+                    return;
                 }
             }
         }

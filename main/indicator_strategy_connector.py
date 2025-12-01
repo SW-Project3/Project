@@ -163,6 +163,137 @@ def generate_signals_indicator_only(
     return signals
 
 
+def generate_signals_prophet_strategy(
+    df: pd.DataFrame,
+    prophet_forecast: pd.DataFrame,
+    params: Optional[Dict] = None
+) -> pd.DataFrame:
+    """
+    새로운 Prophet 기반 전략 신호 생성
+    
+    진입 조건:
+    - yhat > close (예측 상승)
+    - MACD > MACD_signal (추세 상승)
+    - RSI ≤ 60 (과매수 아님)
+    - close ≥ 볼린저 중단선
+    
+    EXIT 조건:
+    - yhat ≤ close (예측 하락)
+    - 또는 MACD ≤ MACD_signal
+    - 또는 RSI > 70 (과매수)
+    
+    손절/익절: entry - 1.5*ATR / entry + 3*ATR
+    """
+    if params is None:
+        params = DEFAULT_PARAMS
+    
+    df = df.copy()
+    
+    # 지표 계산 보증
+    needed = {"RSI", "MACD", "MACD_Signal", "BB_MA", "ATR", "Close"}
+    if not needed.issubset(df.columns):
+        df = compute_indicators(df, params)
+    
+    # Prophet 예측을 가격 인덱스에 맞춰 정렬/병합
+    from main.strategy import align_prophet_forecast
+    pf_aligned = align_prophet_forecast(df, prophet_forecast, method="forward")
+    df = df.join(pf_aligned)
+    
+    # Prophet 예측이 있는 시점 수 확인
+    yhat_available = df["yhat"].notna().sum()
+    print(f"[generate_signals_prophet_strategy] Prophet 예측 사용 가능한 시점: {yhat_available} / {len(df)}")
+    
+    # 신호 DataFrame 초기화
+    signals = pd.DataFrame(index=df.index)
+    signals["signal"] = 0
+    signals["reason"] = ""
+    signals["entry_price"] = np.nan
+    signals["stop_loss"] = np.nan
+    signals["take_profit"] = np.nan
+    
+    # 파라미터
+    sl_mult = 1.5  # 손절: ATR × 1.5
+    tp_mult = 3.0  # 익절: ATR × 3.0
+    rsi_entry_max = 60  # 진입 최대 RSI
+    rsi_exit_threshold = 70  # 청산 RSI
+    
+    position = 0  # 0: 없음, 1: 롱 포지션
+    entry_price = None
+    entry_atr = None
+    
+    for ts in df.index:
+        price = df.at[ts, "Close"]
+        yhat = df.at[ts, "yhat"]
+        rsi = df.at[ts, "RSI"]
+        macd = df.at[ts, "MACD"]
+        macd_signal = df.at[ts, "MACD_Signal"]
+        bb_ma = df.at[ts, "BB_MA"]
+        atr = df.at[ts, "ATR"]
+        
+        # 필요한 값 체크
+        if pd.isna(price) or pd.isna(rsi) or pd.isna(macd) or pd.isna(macd_signal) or pd.isna(atr) or pd.isna(bb_ma):
+            continue
+        
+        if pd.isna(yhat):
+            # Prophet 예측이 없으면 스킵
+            continue
+        
+        # 포지션이 있을 때 EXIT 조건 확인
+        if position == 1:
+            exit_cond1 = yhat <= price  # Prophet 예측 하락
+            exit_cond2 = macd <= macd_signal  # MACD 하락
+            exit_cond3 = rsi > rsi_exit_threshold  # 과매수
+            
+            if exit_cond1 or exit_cond2 or exit_cond3:
+                # 청산 신호
+                signals.at[ts, "signal"] = -1
+                exit_reasons = []
+                if exit_cond1:
+                    exit_reasons.append(f"Prophet하락(yhat={yhat:.2f}≤{price:.2f})")
+                if exit_cond2:
+                    exit_reasons.append(f"MACD하락({macd:.2f}≤{macd_signal:.2f})")
+                if exit_cond3:
+                    exit_reasons.append(f"RSI과매수({rsi:.1f}>{rsi_exit_threshold})")
+                signals.at[ts, "reason"] = " | ".join(exit_reasons)
+                signals.at[ts, "entry_price"] = entry_price
+                signals.at[ts, "stop_loss"] = entry_price - sl_mult * entry_atr
+                signals.at[ts, "take_profit"] = entry_price + tp_mult * entry_atr
+                position = 0
+                entry_price = None
+                entry_atr = None
+                continue
+        
+        # 포지션이 없을 때 진입 조건 확인
+        if position == 0:
+            cond1 = yhat > price  # Prophet 예측 상승
+            cond2 = macd > macd_signal  # MACD 상승
+            cond3 = rsi <= rsi_entry_max  # 과매수 아님
+            cond4 = price >= bb_ma  # 볼린저 중단선 이상
+            
+            if cond1 and cond2 and cond3 and cond4:
+                # 진입 신호
+                signals.at[ts, "signal"] = 1
+                signals.at[ts, "reason"] = (
+                    f"Prophet상승(yhat={yhat:.2f}>{price:.2f}) "
+                    f"MACD상승({macd:.2f}>{macd_signal:.2f}) "
+                    f"RSI={rsi:.1f}≤{rsi_entry_max} "
+                    f"BB중단선={bb_ma:.2f}≤{price:.2f}"
+                )
+                signals.at[ts, "entry_price"] = price
+                signals.at[ts, "stop_loss"] = price - sl_mult * atr
+                signals.at[ts, "take_profit"] = price + tp_mult * atr
+                position = 1
+                entry_price = price
+                entry_atr = atr
+    
+    # 최종 신호 통계
+    buy_signals_count = len(signals[signals["signal"] == 1])
+    sell_signals_count = len(signals[signals["signal"] == -1])
+    print(f"[generate_signals_prophet_strategy] 최종 신호 생성: 매수 {buy_signals_count}개, 매도 {sell_signals_count}개")
+    
+    return signals
+
+
 def analyze_indicators(
     df: pd.DataFrame,
     params: Optional[Dict] = None

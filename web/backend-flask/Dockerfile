@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY web/backend-flask/app.py .
 COPY main ./main
+COPY model ./model
 COPY data_process ./data_process
 
 # Create data directory
